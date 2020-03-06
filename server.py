@@ -30,9 +30,9 @@ app.debug = True
 class World:
     
     def __init__(self):
-        #self.clear()
-        self.space = dict()
-        self.listeners = dict()
+        self.clear()
+        #self.space = dict()
+        #self.listeners = dict()
         
     def update(self, entity, key, value):
         entry = self.space.get(entity,dict())
@@ -45,7 +45,7 @@ class World:
 
     def clear(self):
         self.space = dict()
-        #self.listeners = dict()
+        self.listeners = dict()
 
     def get(self, entity):
         return self.space.get(entity,dict())

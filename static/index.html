@@ -76,6 +76,15 @@ function ajaxReq( obj ) {
                     console.log(xhr.responseText == "{}")
                     obj["success"]( xhr.responseText ); // callback passed in via object
                 }
+            else{
+                if(xhr.status === 500) {
+                // re-register id, clear out world and canvas
+                register(id);
+                world = {};
+                clearFrame();
+                }
+                
+            }
             }
         };
         // finally send it
