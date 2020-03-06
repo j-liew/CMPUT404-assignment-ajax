@@ -31,7 +31,7 @@ var context = canvas.getContext("2d");
 var W = canvas.width  = window.innerWidth-6;
 var H = canvas.height = window.innerHeight-50;
 
-
+/*
 function sendJSONXMLHTTPRequest(url, objects, callback) {
     var xhr = new XMLHttpRequest();
     xhr.onreadystatechange = function () {
@@ -51,22 +51,149 @@ function sendJSONXMLHTTPRequest(url, objects, callback) {
     //XXX: set the mimetype and the accept headers!
     // Remember to use application/json !
 }
+*/
 
 
+var id = "L"+Math.floor(20000000*Math.random());
 world = {};
+
+function ajaxReq( obj ) {
+        var xhr = new XMLHttpRequest();
+        xhr.open( obj["method"] || 'GET', obj["url"]);
+        if (obj["content-type"]) {
+            xhr.overrideMimeType(obj["content-type"]);
+        }
+        if (obj["accept"]) {
+            xhr.setRequestHeader('Accept', obj["accept"]);
+        }
+        // This is a call back
+        xhr.onreadystatechange = function(){
+            // readystate tells you how the transfer is going
+            // 4 is done
+            if( xhr.readyState === 4 ){
+                // This is the HTTP Code
+                if(xhr.status === 200){
+                    console.log(xhr.responseText == "{}")
+                    obj["success"]( xhr.responseText ); // callback passed in via object
+                }
+            }
+        };
+        // finally send it
+        xhr.send(obj["body"] || null);
+    };
+
+function jsonReq( obj ) {
+    obj["content-type"] = "application/json";
+    obj["accept"] = "application/json";
+    return ajaxReq( obj );
+}
+
+// register as a listener
+function register(id) {
+    ajaxReq({
+        "url":"http://"+host+"/listener/"+id,
+        "method":"PUT",
+        "body":JSON.stringify({}),
+        "success": function(text) {
+            // nothing
+        }
+    });
+}
+
+// register as a listener
+register(id);
+
+// polls bucket, update current browser's world
+function checkForUpdate(id) {
+        jsonReq({
+            "url":"http://"+host+"/listener/"+id,
+            "method":"GET",
+            "success": function(text) {
+                // update world if receive a non-empty update
+                if (text != "{}\n") {
+                    var objs = JSON.parse(text);
+                    updateWorldWith(objs);
+                }
+            }
+        });
+    }
+
+//called when canvas is clicked, updates the world on the server
+function modifyWorld(name, value) {
+    jsonReq({
+        "url":"http://"+host+"/entity/"+name,
+        "method":"PUT",
+        //"body":value,//JSON.stringify(value),
+        "body": JSON.stringify(value),
+        "success": function(text) {
+            // nothing
+        }
+    });
+}
+
+// checkForWorld() polls /listener/id
+// if it recieves a non empty update, calls this to update the world of the current browser instance
+// also signals that 
+function updateWorldWith(objs) {
+        for (var key in objs) {
+            o = objs[key];
+            world[key] = o;
+            // could just draw new entities...
+            //drawCircle(context,prepEntity(o));
+        }
+        // signal that world needs to be redrawn
+        drawNextFrame();
+    }
+
 
 //XXX: TODO Make this prettier!
 function drawCircle(context,entity) {
     with(context) {
-        beginPath();              
-        lineWidth = 3;
-        var x = entity["x"];
-        var y = entity["y"];
-        //moveTo(x,y);
-        fillStyle = entity["colour"];
-        strokeStyle = fillStyle;
-        arc(x, y, (entity["radius"])?entity["radius"]:50, 0, 2.0 * Math.PI, false);  
-        stroke();                                
+        
+        var grd = createLinearGradient(0,0, W, H);
+        grd.addColorStop(0, "white");
+        grd.addColorStop(1/3, 'skyblue')
+        grd.addColorStop(2/3, "blue");
+        grd.addColorStop(1, "darkblue")
+
+        fillStyle = grd
+        strokeStyle = fillStyle; 
+        
+        // draw star pattern
+        // adapted from: https://stackoverflow.com/questions/25837158/how-to-draw-a-star-by-using-canvas-html5
+        // with credit to Andrei Volgin and markE
+
+        var rot = Math.PI / 2 * 3;
+        var spikes = entity["spikes"];
+        var cx = entity["x"]
+        var cy = entity["y"]
+        var x = cx
+        var y = cy
+        var outerRadius = entity["outerRadius"];
+        var innerRadius = entity["innerRadius"];
+        var step = Math.PI / spikes;
+        strokeSyle = "#000";
+        beginPath();
+        moveTo(cx, cy - outerRadius)
+        for (i = 0; i < spikes; i++) {
+            x = cx + Math.cos(rot) * outerRadius;
+            y = cy + Math.sin(rot) * outerRadius;
+            lineTo(x, y)
+            rot += step
+
+            x = cx + Math.cos(rot) * innerRadius;
+            y = cy + Math.sin(rot) * innerRadius;
+            lineTo(x, y)
+            rot += step
+        }
+        lineTo(cx, cy - outerRadius)
+        closePath();
+        lineWidth=5;
+        strokeStyle='black';
+        stroke();
+        fillStyle='skyblue';
+        fillStyle = grd;
+        fill();
     }
 }
 
@@ -74,8 +201,14 @@ function prepEntity(entity) {
     if (!entity["colour"]) {
         entity["colour"] = "#FF0000";
     }
-    if (!entity["radius"]) {
-        entity["radius"] = 50;
+    if (!entity["outerRadius"]) {
+        entity["outerRadius"] = 60;
+    }
+    if (!entity["innerRadius"]) {
+        entity["innerRadius"] = 30;
+    }
+    if (!entity["spikes"]) {
+        entity["spikes"] = 5;
     }
     return entity;
 }
@@ -135,16 +268,18 @@ function getPosition(e) {
 
 
 function addEntity(entity, data) {
-    world[entity] = data;
-    drawNextFrame(); // (but should we?)
+    world[entity] = data; // updates local world
+    // need to update server world
+    //drawNextFrame(); // (but should we?) ... modify server-world instead? then polling takes care drawing?
     //XXX: Send a XHTML Request that updates the entity you just  modified!
+    modifyWorld(entity, data);
 
 }
 
 var counter = 0;
 function addEntityWithoutName(data) {
     //var name = "X"+Math.floor((Math.random()*100)+1);
-    var name = "X"+(counter++)%100;
+    var name = "X"+(counter++)%100; // 100 objects in server at a time
     addEntity(name,data);
 }
 
@@ -247,26 +382,31 @@ mouse = (function() {
 // Add the application specific mouse listeners!
 //XXX: TODO Make these prettier!
 mouse.mousedowners.push(function(x,y,clicked,e) {
-    addEntityWithoutName({'x':x,'y':y,'colour':'blue'});
+    //addEntityWithoutName({'x':x,'y':y,'colour':'blue'});
+    addEntityWithoutName({'x':x,'y':y, 'outerRadius':60, 'innerRadius': 30, 'spikes': 5});
 });
 
 mouse.mouseuppers.push(function(x,y,clicked,e) {
-    addEntityWithoutName({'x':x,'y':y,'colour':'red'});
+    //addEntityWithoutName({'x':x,'y':y,'colour':'red'});
+    addEntityWithoutName({'x':x,'y':y, 'outerRadius':60, 'innerRadius': 30, 'spikes': 5});
 });
 
 mouse.mousedraggers.push(function(x,y,clicked,e) {
-    addEntityWithoutName({'x':x,'y':y,'colour':'green',
-                          'radius':10});
+    /*addEntityWithoutName({'x':x,'y':y,'colour':'green',
+                          'radius':10});*/
+    addEntityWithoutName({'x':x,'y':y, 'outerRadius':30, 'innerRadius': 15, 'spikes': 5});
 });
 
 
 function update() {
     //XXX: TODO Get the world from the webservice using a XMLHTTPRequest
-    drawFrame();
+    checkForUpdate(id); // sync browser-world with server-world
+    drawFrame(); // re-render browser-world if anything changed
+    
 }
 
 // 30 frames per second
-setInterval( update, 1000/30.0);
+setInterval( update, 1000/30.0 );
 
 
 
